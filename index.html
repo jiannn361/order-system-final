@@ -43,11 +43,8 @@
             const [inputPwd, setInputPwd] = useState('');
             const [globalNote, setGlobalNote] = useState('');
             
-            // ★★★ 設定區 (請小心修改這裡) ★★★
-            // 1. 您的 LIFF ID
+            // ★★★ 已更新為您的 ID ★★★
             const LIFF_ID = "2008979082-w7Tz842F"; 
-            
-            // 2. 您的 Google Apps Script 網址 (結尾是 /exec)
             const GAS_URL = "https://script.google.com/macros/s/AKfycbwllHK_C8XKGg25IsmhNVWgk-wrRO0ihBGlj0XEuhhUecGDL0aagVfDTY-bKpG7kpT5SA/exec"; 
 
             useEffect(() => {
@@ -56,12 +53,13 @@
                     liff.init({ liffId: LIFF_ID })
                         .then(() => {
                             if (!liff.isLoggedIn()) {
-                                liff.login(); // 強制登入以取得使用者身分
+                                liff.login(); 
                             }
                         })
                         .catch(e => {
                             console.error(e);
-                            document.getElementById('loading-msg').innerText = "LIFF 錯誤: " + e.message;
+                            // 這裡會顯示 LIFF 初始化失敗的原因
+                            document.getElementById('loading-msg').innerText = "LIFF 初始化失敗: " + e.message;
                         }); 
                 }
 
@@ -124,7 +122,7 @@
                     footer: {
                         type: "box", layout: "vertical", spacing: "sm",
                         contents: [
-                            { type: "button", style: "secondary", height: "sm", action: { type: "uri", label: "再點一單", uri: "https://liff.line.me/" + LIFF_ID } }
+                            { type: "button", style: "secondary", height: "sm", action: { type: "uri", label: "查看訂單", uri: "https://liff.line.me/" + LIFF_ID } }
                         ]
                     }
                 };
@@ -146,10 +144,9 @@
                 if(globalNote) textMsg += `\n備註：${globalNote}`;
 
                 try {
-                    // 1. 送到後台 (改用 fetch 預設模式，不加 no-cors，以便偵錯)
+                    // 1. 送到後台
                     const payload = JSON.stringify({ cart, total, globalNote, action:"submit" });
                     
-                    // 使用 text/plain 避免 CORS 預檢，這是 GAS 唯一接受的跨域方式
                     await fetch(GAS_URL, { 
                         method: 'POST', 
                         body: payload,
@@ -160,11 +157,19 @@
                     let sent = false;
                     if (liff.isInClient()) {
                         try {
+                            // 嘗試 Plan A: 直接傳送
                             await liff.sendMessages([{ type: 'flex', altText: `🍱 新訂單 $${total}`, contents: flexMsg }]);
                             liff.closeWindow(); 
                             sent = true;
                         } catch (msgError) {
                             console.log("Direct send failed", msgError);
+                            
+                            // 針對權限錯誤的特別提示
+                            if (msgError.code === "403" || msgError.message.includes("permission")) {
+                                alert("⚠️ 需要您的授權才能傳送訂單！\n\n請在接下來的畫面中點選「許可」即可。");
+                            }
+
+                            // 嘗試 Plan B: 選人視窗 (如果權限不足，這個最有效)
                             if (liff.isApiAvailable('shareTargetPicker')) {
                                 const res = await liff.shareTargetPicker([{ type: 'flex', altText: `🍱 新訂單 $${total}`, contents: flexMsg }]);
                                 if (res) { liff.closeWindow(); sent = true; }
@@ -172,7 +177,7 @@
                         }
                     }
 
-                    // 3. 終極保底
+                    // 3. 終極保底 (如果上面都失敗，用 LINE 開啟文字)
                     if (!sent) {
                         alert("✅ 訂單已建立！\n請點擊「確定」開啟 LINE 傳送給店家。");
                         window.location.href = "https://line.me/R/msg/text/?" + encodeURIComponent(textMsg);
